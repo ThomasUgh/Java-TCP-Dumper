@@ -1,0 +1,86 @@
+# ╔══════════════════════════════════════════════════════╗
+# ║          TCPDumper Pro v2.0.0 — config.yml          ║
+# ╚══════════════════════════════════════════════════════╝
+
+# ── Monitoring ────────────────────────────────────────
+monitor:
+  # Network interface to monitor (check with: ip link show)
+  interface: "eth0"
+
+  # Threshold in Mbit/s — capture starts when exceeded
+  threshold_in_mbits: 500
+  threshold_out_mbits: 500
+
+  # How often to poll traffic data (seconds)
+  poll_interval_seconds: 2
+
+  # Seconds to wait after traffic normalizes before stopping capture
+  cooldown_seconds: 30
+
+  # Number of snapshots to keep for stats/averaging
+  history_size: 300
+
+  # Periodic stats report interval (0 = disabled)
+  stats_interval_minutes: 30
+
+  # Print every poll result to console
+  verbose: false
+
+# ── Capture Settings ──────────────────────────────────
+capture:
+  # Directory for .pcap files
+  directory: "./captures"
+
+  # Max duration of a single capture (seconds) — auto-rotates
+  max_duration_seconds: 120
+
+  # Auto-delete captures older than X days (0 = disabled)
+  max_age_days: 7
+
+  # Max file size per capture in MB (tcpdump -C)
+  max_size_mb: 100
+
+  # tcpdump BPF filter expression
+  filter: "tcp"
+
+  # Snap length (0 = full packet, 96 = headers only)
+  snaplen: 0
+
+# ── Notifications ─────────────────────────────────────
+notifications:
+
+  # Discord Webhook
+  discord:
+    enabled: false
+    webhook_url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
+    username: "TCPDumper Pro"
+    # Role/User mention on alerts (e.g. "<@&ROLE_ID>" or "<@USER_ID>")
+    mention: ""
+
+  # Telegram Bot
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+
+  # Slack Incoming Webhook
+  slack:
+    enabled: false
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+  # Generic HTTP Webhook (for Grafana, Datadog, PagerDuty, custom APIs etc.)
+  webhook:
+    enabled: false
+    url: "https://your-api.example.com/alerts"
+    method: "POST"
+    headers:
+      Authorization: "Bearer YOUR_TOKEN"
+      X-Custom-Header: "tcpdumper"
+
+  # ntfy.sh Push Notifications (mobile-friendly)
+  ntfy:
+    enabled: false
+    url: "https://ntfy.sh"
+    topic: "tcpdumper-alerts"
+    # Access token (leave empty for public topics)
+    token: ""
