@@ -1,0 +1,25 @@
+[Unit]
+Description=TCPDumper Pro — Advanced Network Traffic Monitor
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tcpdumper-pro
+ExecStart=/usr/bin/java -Xms64m -Xmx256m -jar tcpdumper-pro.jar --config config.yml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tcpdumper-pro
+
+# Hardening
+ProtectSystem=strict
+ReadWritePaths=/opt/tcpdumper-pro
+PrivateTmp=true
+NoNewPrivileges=false
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target
