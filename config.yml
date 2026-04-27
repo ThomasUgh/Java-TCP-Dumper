@@ -1,6 +1,14 @@
 # ╔══════════════════════════════════════════════════════╗
-# ║          TCPDumper Pro v2.0.0 — config.yml          ║
+# ║            TCP-Dumper v3.0.0 — config.yml           ║
 # ╚══════════════════════════════════════════════════════╝
+
+# ── General ───────────────────────────────────────────
+general:
+  # Custom display name shown in all notifications (replaces the system hostname)
+  server_name: "ubuntu"
+
+  # Time format for all timestamps in notifications ("12h" or "24h")
+  time_format: "24h"
 
 # ── Monitoring ────────────────────────────────────────
 monitor:
