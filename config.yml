@@ -15,9 +15,13 @@ monitor:
   # Network interface to monitor (check with: ip link show)
   interface: "eth0"
 
-  # Threshold in Mbit/s — capture starts when exceeded
+  # Threshold in Mbit/s — alert triggers when exceeded
   threshold_in_mbits: 500
   threshold_out_mbits: 500
+
+  # Seconds the threshold must be continuously exceeded before an alert fires
+  # Prevents false-positives from short traffic spikes (0 = alert immediately)
+  alert_delay_seconds: 5
 
   # How often to poll traffic data (seconds)
   poll_interval_seconds: 2
@@ -36,8 +40,12 @@ monitor:
 
 # ── Capture Settings ──────────────────────────────────
 capture:
-  # Directory for .pcap files
+  # Directory for ongoing .pcap capture files
   directory: "./captures"
+
+  # Central directory for alert-triggered dump files
+  # When an alert fires, a dedicated dump is also saved here
+  dump_directory: "./dumps"
 
   # Max duration of a single capture (seconds) — auto-rotates
   max_duration_seconds: 120
@@ -61,7 +69,7 @@ notifications:
   discord:
     enabled: false
     webhook_url: "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
-    username: "TCPDumper Pro"
+    username: "TCP-Dumper"
     # Role/User mention on alerts (e.g. "<@&ROLE_ID>" or "<@USER_ID>")
     mention: ""
 
