@@ -1,0 +1,17 @@
+[Unit]
+Description=TCP-Dumper — Advanced Network Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tcp-dumper
+ExecStart=/usr/bin/java -jar /opt/tcp-dumper/tcp-dumper.jar --config /opt/tcp-dumper/config.yml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tcp-dumper
+
+[Install]
+WantedBy=multi-user.target
