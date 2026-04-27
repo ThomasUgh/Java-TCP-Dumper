@@ -1,16 +1,16 @@
 #!/bin/bash
 # ──────────────────────────────────────────────
-# TCPDumper Pro — Install Script
+# TCP-Dumper — Install Script
 # Run as root on Ubuntu/Debian
 # ──────────────────────────────────────────────
 set -e
 
-INSTALL_DIR="/opt/tcpdumper-pro"
-JAR_NAME="tcpdumper-pro.jar"
-SERVICE_NAME="tcpdumper-pro"
+INSTALL_DIR="/opt/tcp-dumper"
+JAR_NAME="tcp-dumper.jar"
+SERVICE_NAME="tcp-dumper"
 
 echo "╔══════════════════════════════════════╗"
-echo "║   TCPDumper Pro — Installer          ║"
+echo "║   TCP-Dumper — Installer          ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
@@ -53,7 +53,7 @@ elif [ -f "$PARENT_DIR/$JAR_NAME" ]; then
     echo "✓ JAR copied"
 else
     echo "⚠ JAR not found — build first with: mvn clean package"
-    echo "  Then copy target/tcpdumper-pro-2.0.0-shaded.jar to $INSTALL_DIR/$JAR_NAME"
+    echo "  Then copy target/tcp-dumper-2.0.0-shaded.jar to $INSTALL_DIR/$JAR_NAME"
 fi
 
 # Config
@@ -65,7 +65,7 @@ else
 fi
 
 # Systemd service
-cp "$SCRIPT_DIR/tcpdumper-pro.service" /etc/systemd/system/
+cp "$SCRIPT_DIR/tcp-dumper.service" /etc/systemd/system/
 systemctl daemon-reload
 echo "✓ Systemd service installed"
 
