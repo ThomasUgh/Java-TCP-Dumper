@@ -1,6 +1,6 @@
 #!/bin/bash
 # ──────────────────────────────────────────────
-# TCPDumper Pro — Build Script
+# TCP-Dumper — Build Script
 # Builds the fat JAR, ready to run.
 # ──────────────────────────────────────────────
 set -e
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "╔══════════════════════════════════════╗"
-echo "║   TCPDumper Pro — Build              ║"
+echo "║   TCP-Dumper — Build              ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
@@ -33,7 +33,7 @@ echo "🔨 Building..."
 ./mvnw clean package -q
 
 # Find the shaded JAR
-SHADED_JAR=$(find target/ -name "tcpdumper-pro-*.jar" ! -name "*original*" 2>/dev/null | head -1)
+SHADED_JAR=$(find target/ -name "tcp-dumper-*.jar" ! -name "*original*" 2>/dev/null | head -1)
 
 if [ -z "$SHADED_JAR" ]; then
     echo "❌ Build failed — no JAR found in target/"
@@ -41,11 +41,11 @@ if [ -z "$SHADED_JAR" ]; then
 fi
 
 # Copy to project root for convenience
-cp "$SHADED_JAR" tcpdumper-pro.jar
+cp "$SHADED_JAR" tcp-dumper.jar
 
 echo ""
 echo "✅ Build successful!"
-echo "   JAR: $(pwd)/tcpdumper-pro.jar"
+echo "   JAR: $(pwd)/tcp-dumper.jar"
 echo ""
 echo "   Starten mit:  ./start.sh"
-echo "   Oder direkt:  java -jar tcpdumper-pro.jar"
+echo "   Oder direkt:  java -jar tcp-dumper.jar"
