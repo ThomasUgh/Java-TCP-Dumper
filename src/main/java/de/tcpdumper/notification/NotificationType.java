@@ -1,10 +1,10 @@
 package de.tcpdumper.notification;
 
 public enum NotificationType {
-    INFO(0x3498DB),       // Blue
-    SUCCESS(0x2ECC71),    // Green
-    WARNING(0xF39C12),    // Orange
-    ALERT(0xE74C3C);      // Red
+    INFO(0x3498DB),
+    SUCCESS(0x2ECC71),
+    WARNING(0xF39C12),
+    ALERT(0xE74C3C);
 
     private final int color;
 
