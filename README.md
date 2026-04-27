@@ -135,12 +135,6 @@ java -jar tcpdumper-pro.jar [Optionen]
   -h, --help             Hilfe anzeigen
 ```
 
-## Logs
-
-- Datei: `logs/tcpdumper-pro.log` (tägliche Rotation, 14 Tage aufbewahrt)
-- Konsole: farbig formatiert
-- Systemd: `journalctl -u tcpdumper-pro -f`
-
 
 ## Lizenz
 
