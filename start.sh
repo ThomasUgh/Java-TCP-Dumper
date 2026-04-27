@@ -34,7 +34,7 @@ fi
 mkdir -p captures logs
 
 echo "╔══════════════════════════════════════╗"
-echo "║   TCP-Dumper — Starting...        ║"
+echo "║   TCP-Dumper — Starting...           ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
