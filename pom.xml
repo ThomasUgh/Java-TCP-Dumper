@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>de.tcpdumper</groupId>
-    <artifactId>tcpdumper-pro</artifactId>
-    <version>2.0.0</version>
+    <artifactId>tcp-dumper</artifactId>
+    <version>3.0.0</version>
     <packaging>jar</packaging>
 
     <description>Advanced network traffic monitor with automatic tcpdump capture on threshold breach and multi-channel alerting.</description>
@@ -58,7 +58,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>de.tcpdumper.core.TCPDumperPro</mainClass>
+                            <mainClass>de.tcpdumper.core.TCPDumper</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -75,7 +75,7 @@
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>de.tcpdumper.core.TCPDumperPro</mainClass>
+                                    <mainClass>de.tcpdumper.core.TCPDumper</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
