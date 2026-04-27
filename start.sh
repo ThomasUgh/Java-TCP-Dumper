@@ -1,6 +1,6 @@
 #!/bin/bash
 # ──────────────────────────────────────────────
-# TCPDumper Pro — Start Script
+# TCP-Dumper — Start Script
 # Runs the application with sensible JVM defaults.
 # ──────────────────────────────────────────────
 set -e
@@ -8,13 +8,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-JAR="tcpdumper-pro.jar"
+JAR="tcp-dumper.jar"
 CONFIG="config.yml"
 
 # Check if JAR exists
 if [ ! -f "$JAR" ]; then
     # Try target/ directory
-    SHADED_JAR=$(find target/ -name "tcpdumper-pro-*.jar" ! -name "*original*" 2>/dev/null | head -1)
+    SHADED_JAR=$(find target/ -name "tcp-dumper-*.jar" ! -name "*original*" 2>/dev/null | head -1)
     if [ -n "$SHADED_JAR" ]; then
         JAR="$SHADED_JAR"
     else
@@ -34,7 +34,7 @@ fi
 mkdir -p captures logs
 
 echo "╔══════════════════════════════════════╗"
-echo "║   TCPDumper Pro — Starting...        ║"
+echo "║   TCP-Dumper — Starting...        ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
