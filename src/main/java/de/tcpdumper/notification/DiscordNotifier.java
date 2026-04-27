@@ -15,42 +15,43 @@ import java.time.Duration;
 public class DiscordNotifier implements Notifier {
 
     private static final Logger log = LoggerFactory.getLogger(DiscordNotifier.class);
+    private static final int    RATE_LIMIT_RETRY_DELAY_MS = 2_000;
 
-    private final String webhookUrl;
-    private final String username;
-    private final String mention;
-    private final HttpClient http;
+    private final String     webhookUrl;
+    private final String     botUsername;
+    private final String     mentionTarget;
+    private final HttpClient httpClient;
 
     public DiscordNotifier(AppConfig config) {
-        this.webhookUrl = config.getDiscordWebhookUrl();
-        this.username = config.getDiscordUsername();
-        this.mention = config.getDiscordMention();
-        this.http = HttpClient.newBuilder()
+        this.webhookUrl    = config.getDiscordWebhookUrl();
+        this.botUsername   = config.getDiscordUsername();
+        this.mentionTarget = config.getDiscordMention();
+        this.httpClient    = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
     }
 
     @Override
     public void send(NotificationType type, String title, String message) throws Exception {
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", type.getEmoji() + " " + title);
-        embed.addProperty("description", message);
-        embed.addProperty("color", type.getColor());
-        embed.addProperty("timestamp", java.time.Instant.now().toString());
-
         JsonObject footer = new JsonObject();
-        footer.addProperty("text", "TCPDumper Pro");
+        footer.addProperty("text", "TCP-Dumper");
+
+        JsonObject embed = new JsonObject();
+        embed.addProperty("title",       type.getEmoji() + " " + title);
+        embed.addProperty("description", message);
+        embed.addProperty("color",       type.getColor());
+        embed.addProperty("timestamp",   java.time.Instant.now().toString());
         embed.add("footer", footer);
 
         JsonArray embeds = new JsonArray();
         embeds.add(embed);
 
         JsonObject payload = new JsonObject();
-        payload.addProperty("username", username);
+        payload.addProperty("username", botUsername);
         payload.add("embeds", embeds);
 
-        if (type == NotificationType.ALERT && !mention.isEmpty()) {
-            payload.addProperty("content", mention);
+        if (type == NotificationType.ALERT && !mentionTarget.isEmpty()) {
+            payload.addProperty("content", mentionTarget);
         }
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -60,13 +61,12 @@ public class DiscordNotifier implements Notifier {
                 .timeout(Duration.ofSeconds(15))
                 .build();
 
-        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() == 429) {
-            // Rate limited — wait and retry once
-            log.warn("Discord rate limited — waiting 2s and retrying");
-            Thread.sleep(2000);
-            http.send(request, HttpResponse.BodyHandlers.ofString());
+            log.warn("Discord rate limited — retrying after {}ms", RATE_LIMIT_RETRY_DELAY_MS);
+            Thread.sleep(RATE_LIMIT_RETRY_DELAY_MS);
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } else if (response.statusCode() >= 400) {
             log.error("Discord webhook failed: {} — {}", response.statusCode(), response.body());
         }

@@ -17,19 +17,21 @@ import java.util.concurrent.Executors;
 public class NotificationManager {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationManager.class);
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
 
-    private final List<Notifier> notifiers = new ArrayList<>();
-    private final ExecutorService executor;
-    private final String hostname;
+    private final List<Notifier>    notifiers;
+    private final ExecutorService   dispatchExecutor;
+    private final String            serverName;
+    private final DateTimeFormatter timestampFormatter;
 
     public NotificationManager(AppConfig config) {
-        this.executor = Executors.newFixedThreadPool(2, r -> {
-            Thread t = new Thread(r, "notifier");
-            t.setDaemon(true);
-            return t;
+        this.serverName          = config.getServerName();
+        this.timestampFormatter  = buildTimestampFormatter(config.getTimeFormat());
+        this.notifiers           = new ArrayList<>();
+        this.dispatchExecutor    = Executors.newFixedThreadPool(2, runnable -> {
+            Thread thread = new Thread(runnable, "notifier");
+            thread.setDaemon(true);
+            return thread;
         });
-        this.hostname = resolveHostname();
 
         if (config.isDiscordEnabled()) {
             notifiers.add(new DiscordNotifier(config));
@@ -57,14 +59,19 @@ public class NotificationManager {
         }
     }
 
+    // ── Public API ────────────────────────────────────────────────────────────
+
     public void sendStartup(String version, AppConfig config) {
         String message = String.format(
                 "🟢 **TCP-Dumper v%s** started on `%s`\n" +
                 "Interface: `%s` | Threshold IN: `%.0f Mbit/s` OUT: `%.0f Mbit/s`\n" +
-                "Time: %s",
-                version, hostname, config.getNetworkInterface(),
-                config.getThresholdInMbits(), config.getThresholdOutMbits(),
-                now()
+                "Alert delay: `%ds` | Time: %s",
+                version, serverName,
+                config.getNetworkInterface(),
+                config.getThresholdInMbits(),
+                config.getThresholdOutMbits(),
+                config.getAlertDelaySeconds(),
+                currentTimestamp()
         );
         broadcast(NotificationType.INFO, "TCP-Dumper Started", message);
     }
@@ -97,91 +104,94 @@ public class NotificationManager {
                 "↓ Incoming: `%.2f Mbit/s`\n" +
                 "↑ Outgoing: `%.2f Mbit/s`\n\n" +
                 "📁 Capture: `%s`\n" +
+                "💾 Dump: `%s`\n" +
                 "⏰ Time: %s",
-                hostname, inMbits, outMbits,
+                serverName, incomingMbits, outgoingMbits,
                 captureFile != null ? captureFile.getFileName() : "N/A",
-                now()
+                dumpFile    != null ? dumpFile.getFileName()    : "N/A",
+                currentTimestamp()
         ));
 
         if (!topTalkers.isEmpty()) {
-            sb.append("\n\n🔍 **Top Talkers:**\n");
-            for (int i = 0; i < topTalkers.size(); i++) {
-                TrafficAnalyzer.TopTalker t = topTalkers.get(i);
-                sb.append(String.format("%d. `%s` — %d connections\n", i + 1, t.ip(), t.connections()));
+            messageBuilder.append("\n\n🔍 **Top Talkers:**\n");
+            for (int rank = 0; rank < topTalkers.size(); rank++) {
+                TrafficAnalyzer.TopTalker talker = topTalkers.get(rank);
+                messageBuilder.append(String.format(
+                        "%d. `%s` — %d connections\n",
+                        rank + 1, talker.ip(), talker.connections()));
             }
         }
 
-        broadcast(NotificationType.ALERT, "Traffic Alert — " + hostname, sb.toString());
+        broadcast(NotificationType.ALERT, "Traffic Alert — " + serverName, messageBuilder.toString());
     }
 
-    public void sendResolved(double inMbits, double outMbits, Path captureFile) {
-        String msg = String.format(
+    public void sendResolved(double incomingMbits, double outgoingMbits, Path captureFile) {
+        String message = String.format(
                 "✅ **Traffic Normalized** on `%s`\n\n" +
                 "↓ Incoming: `%.2f Mbit/s`\n" +
                 "↑ Outgoing: `%.2f Mbit/s`\n" +
                 "📁 Capture saved: `%s`\n" +
                 "⏰ Time: %s",
-                hostname, inMbits, outMbits,
+                serverName, incomingMbits, outgoingMbits,
                 captureFile != null ? captureFile.getFileName() : "N/A",
-                now()
+                currentTimestamp()
         );
-        broadcast(NotificationType.SUCCESS, "Traffic Normalized — " + hostname, msg);
+        broadcast(NotificationType.SUCCESS, "Traffic Normalized — " + serverName, message);
     }
 
-    public void sendCaptureRotated(Path newFile) {
-        String msg = String.format(
+    public void sendCaptureRotated(Path newCaptureFile) {
+        String message = String.format(
                 "🔄 **Capture Rotated** on `%s`\nNew file: `%s`\n⏰ %s",
-                hostname, newFile.getFileName(), now()
+                serverName, newCaptureFile.getFileName(), currentTimestamp()
         );
-        broadcast(NotificationType.INFO, "Capture Rotated", msg);
+        broadcast(NotificationType.INFO, "Capture Rotated", message);
     }
 
     public void sendStats(TrafficAnalyzer.Stats stats) {
-        String msg = String.format(
+        String message = String.format(
                 "📈 **Traffic Report** — `%s`\n\n" +
                 "Current: ↓ `%.2f` / ↑ `%.2f` Mbit/s\n" +
                 "Average: ↓ `%.2f` / ↑ `%.2f` Mbit/s\n" +
                 "Peak:    ↓ `%.2f` / ↑ `%.2f` Mbit/s\n" +
                 "Alerts triggered: `%d`\n" +
                 "⏰ %s",
-                hostname,
+                serverName,
                 stats.currentInMbits(), stats.currentOutMbits(),
-                stats.avgInMbits(), stats.avgOutMbits(),
-                stats.peakInMbits(), stats.peakOutMbits(),
+                stats.avgInMbits(),     stats.avgOutMbits(),
+                stats.peakInMbits(),    stats.peakOutMbits(),
                 stats.alertCount(),
-                now()
+                currentTimestamp()
         );
-        broadcast(NotificationType.INFO, "Traffic Report — " + hostname, msg);
+        broadcast(NotificationType.INFO, "Traffic Report — " + serverName, message);
     }
 
-    // ── Internal ──
+    // ── Internals ─────────────────────────────────────────────────────────────
 
     private void broadcast(NotificationType type, String title, String message) {
-        for (Notifier n : notifiers) {
-            executor.submit(() -> {
+        for (Notifier notifier : notifiers) {
+            dispatchExecutor.submit(() -> {
                 try {
-                    n.send(type, title, message);
-                } catch (Exception e) {
-                    log.error("Failed to send notification via {}", n.getClass().getSimpleName(), e);
+                    notifier.send(type, title, message);
+                } catch (Exception exception) {
+                    log.error("Failed to send notification via {}", notifier.getClass().getSimpleName(), exception);
                 }
             });
         }
     }
 
-    private String now() {
-        return TIME_FMT.format(Instant.now().atZone(ZoneId.systemDefault()));
+    private String currentTimestamp() {
+        return timestampFormatter.format(Instant.now().atZone(ZoneId.systemDefault()));
     }
 
-    private String resolveHostname() {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("hostname", "-f");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            String result = new String(p.getInputStream().readAllBytes()).trim();
-            p.waitFor();
-            return result.isEmpty() ? "unknown" : result;
-        } catch (Exception e) {
-            return "unknown";
-        }
+    /**
+     * Builds a timestamp formatter for the configured time format.
+     *
+     * @param timeFormat {@code "12h"} or {@code "24h"}
+     */
+    private static DateTimeFormatter buildTimestampFormatter(String timeFormat) {
+        String pattern = "12h".equals(timeFormat)
+                ? "yyyy-MM-dd hh:mm:ss a z"   // e.g. 2026-04-27 09:37:10 AM UTC
+                : "yyyy-MM-dd HH:mm:ss z";     // e.g. 2026-04-27 09:37:10 UTC
+        return DateTimeFormatter.ofPattern(pattern);
     }
 }
