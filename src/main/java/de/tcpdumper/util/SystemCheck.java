@@ -49,7 +49,7 @@ public final class SystemCheck {
         }
 
         // Check capture directory writable
-        Path captureDir = Path.of(config.getCaptureDir());
+        Path captureDir = Path.of(config.getCaptureDirectory());
         try {
             Files.createDirectories(captureDir);
             Path testFile = captureDir.resolve(".write-test");
