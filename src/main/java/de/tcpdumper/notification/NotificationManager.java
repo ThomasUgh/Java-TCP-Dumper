@@ -58,26 +58,40 @@ public class NotificationManager {
     }
 
     public void sendStartup(String version, AppConfig config) {
-        String msg = String.format(
-                "🟢 **TCPDumper Pro v%s** started on `%s`\n" +
+        String message = String.format(
+                "🟢 **TCP-Dumper v%s** started on `%s`\n" +
                 "Interface: `%s` | Threshold IN: `%.0f Mbit/s` OUT: `%.0f Mbit/s`\n" +
                 "Time: %s",
                 version, hostname, config.getNetworkInterface(),
                 config.getThresholdInMbits(), config.getThresholdOutMbits(),
                 now()
         );
-        broadcast(NotificationType.INFO, "TCPDumper Pro Started", msg);
+        broadcast(NotificationType.INFO, "TCP-Dumper Started", message);
     }
 
     public void sendShutdown() {
-        String msg = String.format("🔴 **TCPDumper Pro** stopped on `%s` at %s", hostname, now());
-        broadcast(NotificationType.WARNING, "TCPDumper Pro Stopped", msg);
+        String message = String.format(
+                "🔴 **TCP-Dumper** stopped on `%s` at %s",
+                serverName, currentTimestamp()
+        );
+        broadcast(NotificationType.WARNING, "TCP-Dumper Stopped", message);
     }
 
-    public void sendAlert(double inMbits, double outMbits, Path captureFile,
+    /**
+     * Sends a traffic alert notification.
+     *
+     * @param incomingMbits  current incoming rate in Mbit/s
+     * @param outgoingMbits  current outgoing rate in Mbit/s
+     * @param captureFile    rolling capture file (may be null)
+     * @param dumpFile       alert dump file saved to dump_directory (may be null)
+     * @param topTalkers     top-N source IPs by connection count
+     */
+    public void sendAlert(double incomingMbits, double outgoingMbits,
+                          Path captureFile, Path dumpFile,
                           List<TrafficAnalyzer.TopTalker> topTalkers) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format(
+
+        StringBuilder messageBuilder = new StringBuilder();
+        messageBuilder.append(String.format(
                 "🚨 **TRAFFIC ALERT** on `%s`\n\n" +
                 "📊 **Current Rates:**\n" +
                 "↓ Incoming: `%.2f Mbit/s`\n" +
