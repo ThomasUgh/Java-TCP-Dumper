@@ -6,13 +6,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +39,8 @@ public class TcpdumpCapture {
         try {
             Files.createDirectories(captureDirectory);
             Files.createDirectories(dumpDirectory);
+            log.info("Capture dir : {}", captureDirectory.toAbsolutePath());
+            log.info("Dump dir    : {}", dumpDirectory.toAbsolutePath());
         } catch (IOException ioException) {
             log.error("Cannot create capture/dump directories", ioException);
         }
@@ -48,15 +48,15 @@ public class TcpdumpCapture {
 
     // ── Capture control ───────────────────────────────────────────────────────
 
-    /** Starts a new tcpdump capture. Returns the path to the capture file. */
-    public synchronized Path start() {
+    public synchronized Path start(String alertId) {
         if (activeProcess != null && activeProcess.isAlive()) {
             log.warn("Capture already running — stopping first.");
             stop();
         }
 
         String timestamp = LocalDateTime.now().format(FILE_TIMESTAMP_FORMAT);
-        activeFile = captureDirectory.resolve("capture_" + timestamp + ".pcap");
+        activeFile = captureDirectory.resolve(
+                String.format("capture_%s_%s.pcap", alertId, timestamp));
 
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(
@@ -64,20 +64,20 @@ public class TcpdumpCapture {
                     "-n", "-nn",
                     "-i", config.getNetworkInterface(),
                     "-s", String.valueOf(config.getSnapLen()),
-                    "-C", String.valueOf(config.getMaxCaptureSizeMb()),
                     "-w", activeFile.toAbsolutePath().toString(),
                     config.getCaptureFilter()
             );
+            // Redirect stderr to stdout so we can log tcpdump errors
             processBuilder.redirectErrorStream(true);
             processBuilder.directory(captureDirectory.toFile());
 
             activeProcess = processBuilder.start();
-            drainProcessOutput(activeProcess);
+            forwardProcessOutputToLog(activeProcess, alertId);
 
-            log.info("tcpdump started → {}", activeFile);
+            log.info("[{}] tcpdump started → {}", alertId, activeFile);
 
         } catch (IOException ioException) {
-            log.error("Failed to start tcpdump", ioException);
+            log.error("[{}] Failed to start tcpdump: {}", alertId, ioException.getMessage());
         }
 
         return activeFile;
@@ -87,16 +87,16 @@ public class TcpdumpCapture {
     public synchronized Path stop() {
         if (activeProcess == null) return null;
 
-        Path stoppedFile = activeFile;
+        Path completedFile = activeFile;
         try {
-            activeProcess.destroy();
+            activeProcess.destroy(); // SIGTERM — tcpdump flushes buffers on SIGTERM
             boolean exitedCleanly = activeProcess.waitFor(10, TimeUnit.SECONDS);
             if (!exitedCleanly) {
                 log.warn("tcpdump did not exit within 10s — forcing termination.");
                 activeProcess.destroyForcibly();
             }
             log.info("tcpdump stopped → {} ({})",
-                    stoppedFile, formatFileSize(stoppedFile.toFile().length()));
+                    completedFile, formatFileSize(completedFile));
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
             activeProcess.destroyForcibly();
@@ -104,46 +104,46 @@ public class TcpdumpCapture {
             activeProcess = null;
             activeFile    = null;
         }
-        return stoppedFile;
+        return completedFile;
     }
 
-    public synchronized Path writeDump() {
-        if (activeFile == null || !Files.exists(activeFile)) {
-            log.warn("writeDump() called but no active capture file exists.");
+    public Path copyToDump(Path completedCapture, String alertId) {
+        if (completedCapture == null || !Files.exists(completedCapture)) {
+            log.warn("[{}] copyToDump: source file not found — {}", alertId, completedCapture);
             return null;
         }
 
-        String timestamp  = LocalDateTime.now().format(FILE_TIMESTAMP_FORMAT);
-        Path   dumpTarget = dumpDirectory.resolve("dump_" + timestamp + ".pcap");
+        String timestamp = LocalDateTime.now().format(FILE_TIMESTAMP_FORMAT);
+        Path   dumpTarget = dumpDirectory.resolve(
+                String.format("dump_%s_%s.pcap", alertId, timestamp));
 
         try {
-            Files.copy(activeFile, dumpTarget, StandardCopyOption.REPLACE_EXISTING);
-            log.info("Alert dump written → {} ({})",
-                    dumpTarget, formatFileSize(dumpTarget.toFile().length()));
+            Files.copy(completedCapture, dumpTarget, StandardCopyOption.REPLACE_EXISTING);
+            log.info("[{}] Alert dump saved → {} ({})",
+                    alertId, dumpTarget, formatFileSize(dumpTarget));
             return dumpTarget;
         } catch (IOException ioException) {
-            log.error("Failed to write alert dump to {}", dumpTarget, ioException);
+            log.error("[{}] Failed to write dump to {}: {}", alertId, dumpTarget, ioException.getMessage());
             return null;
         }
     }
 
     // ── Housekeeping ──────────────────────────────────────────────────────────
 
-    /** Deletes capture files older than {@code maxAgeDays} days. Returns count deleted. */
+    /** Deletes capture files older than {@code maxAgeDays}. Returns number deleted. */
     public int cleanupOld(int maxAgeDays) {
         int deletedCount = 0;
-        Instant cutoffInstant = Instant.now().minus(maxAgeDays, ChronoUnit.DAYS);
+        Instant cutoff   = Instant.now().minus(maxAgeDays, ChronoUnit.DAYS);
 
-        File[] captureFiles = captureDirectory.toFile()
+        File[] files = captureDirectory.toFile()
                 .listFiles((dir, name) -> name.endsWith(".pcap"));
-        if (captureFiles == null) return 0;
+        if (files == null) return 0;
 
-        for (File captureFile : captureFiles) {
-            Instant lastModifiedInstant = Instant.ofEpochMilli(captureFile.lastModified());
-            if (lastModifiedInstant.isBefore(cutoffInstant)) {
-                if (captureFile.delete()) {
+        for (File file : files) {
+            if (Instant.ofEpochMilli(file.lastModified()).isBefore(cutoff)) {
+                if (file.delete()) {
                     deletedCount++;
-                    log.debug("Deleted old capture: {}", captureFile.getName());
+                    log.debug("Deleted old capture: {}", file.getName());
                 }
             }
         }
@@ -156,15 +156,26 @@ public class TcpdumpCapture {
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 
-    /** Drains tcpdump stdout/stderr in a background thread to prevent buffer blocking. */
-    private void drainProcessOutput(Process process) {
-        Thread drainerThread = new Thread(() -> {
-            try (var inputStream = process.getInputStream()) {
-                inputStream.transferTo(OutputStream.nullOutputStream());
+    private void forwardProcessOutputToLog(Process process, String alertId) {
+        Thread logThread = new Thread(() -> {
+            try (var reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (!trimmed.isEmpty()) {
+                        log.warn("[{}] tcpdump: {}", alertId, trimmed);
+                    }
+                }
             } catch (IOException ignored) {}
-        }, "tcpdump-drainer");
-        drainerThread.setDaemon(true);
-        drainerThread.start();
+        }, "tcpdump-logger-" + alertId);
+        logThread.setDaemon(true);
+        logThread.start();
+    }
+
+    private String formatFileSize(Path file) {
+        if (file == null || !file.toFile().exists()) return "? B";
+        return formatFileSize(file.toFile().length());
     }
 
     private String formatFileSize(long bytes) {
