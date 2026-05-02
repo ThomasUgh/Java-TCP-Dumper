@@ -1,6 +1,5 @@
 package de.tcpdumper.notification;
 
-import de.tcpdumper.analysis.PcapAnalyzer;
 import de.tcpdumper.analysis.TrafficAnalyzer;
 
 import java.nio.file.Path;
@@ -8,20 +7,26 @@ import java.util.List;
 
 public interface Notifier {
 
+    // ── Core method (required) ────────────────────────────────────────────────
+
     void send(NotificationType type, String title, String message) throws Exception;
+
+    // ── Alert lifecycle (optional override) ───────────────────────────────────
 
     default String sendAlert(AlertPayload payload) throws Exception {
         send(NotificationType.ALERT,
                 "Traffic Alert — " + payload.serverName(),
                 payload.toAlertMessage());
-        return null; // no message ID — will send a new message on resolve
+        return null;
     }
 
     default void editOrSendResolved(String messageId, ResolvedPayload payload) throws Exception {
         send(NotificationType.SUCCESS,
-                "Traffic Normalized — " + payload.serverName(),
+                "Traffic Alert — " + payload.serverName() + " ✅ Beendet",
                 payload.toResolvedMessage());
     }
+
+    // ── Payload records ───────────────────────────────────────────────────────
 
     record AlertPayload(
             String alertId,
@@ -67,7 +72,7 @@ public interface Notifier {
             long   durationSeconds,
             Path   captureFile,
             Path   dumpFile,
-            PcapAnalyzer.ProtocolStats protocolStats,
+            String protocolStatsDisplay,   // pre-formatted, never null
             String timestamp
     ) {
         public String toResolvedMessage() {
@@ -87,10 +92,8 @@ public interface Notifier {
                     currentIncomingMbits, currentOutgoingMbits,
                     durationSeconds));
 
-            if (protocolStats != null && protocolStats.hasData()) {
-                sb.append(String.format(
-                        "🔬 **Protokolle:** %s\n\n",
-                        protocolStats.toDisplayString()));
+            if (!protocolStatsDisplay.isBlank()) {
+                sb.append(String.format("🔬 **Protokolle:** %s\n\n", protocolStatsDisplay));
             }
 
             sb.append(String.format(
