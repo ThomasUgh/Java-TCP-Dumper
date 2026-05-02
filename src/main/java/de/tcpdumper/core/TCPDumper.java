@@ -10,41 +10,28 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Main application class for TCP-Dumper.
- *
- * <p>Orchestrates the monitoring loop, capture lifecycle, and notification dispatch.
- * The alert-delay feature prevents false positives: an alert is only triggered after
- * the threshold has been continuously breached for {@code alert_delay_seconds}.
- */
 public class TCPDumper {
 
     private static final Logger log = LoggerFactory.getLogger(TCPDumper.class);
     private static final String VERSION = "3.0.0";
 
-    private final AppConfig config;
-    private final NotificationManager notificationManager;
-    private final NloadMonitor nloadMonitor;
-    private final TcpdumpCapture tcpdumpCapture;
-    private final TrafficAnalyzer trafficAnalyzer;
+    private final AppConfig               config;
+    private final NotificationManager     notificationManager;
+    private final NloadMonitor            nloadMonitor;
+    private final TcpdumpCapture          tcpdumpCapture;
+    private final TrafficAnalyzer         trafficAnalyzer;
     private final ScheduledExecutorService scheduler;
 
-    /** True while a capture (and alert state) is active. */
-    private final AtomicBoolean isCapturing = new AtomicBoolean(false);
-
-    /** Epoch-ms when the current capture was started. */
-    private volatile long captureStartedAtMs = 0;
-
-    /**
-     * Epoch-ms when the threshold was first exceeded in the current breach window.
-     * Reset to 0 when traffic drops back below threshold.
-     */
+    private volatile AlertSession activeAlertSession;
     private volatile long thresholdFirstBreachedAtMs = 0;
+    private final AtomicBoolean isCapturing = new AtomicBoolean(false);
+    private volatile long captureStartedAtMs = 0;
 
     public TCPDumper(AppConfig config) {
         this.config = config;
@@ -70,7 +57,7 @@ public class TCPDumper {
         }
 
         notificationManager.sendStartup(VERSION, config);
-        log.info("Monitoring interface '{}' — threshold IN: {} Mbit/s, OUT: {} Mbit/s, alert delay: {}s",
+        log.info("Monitoring '{}' — threshold IN: {} Mbit/s, OUT: {} Mbit/s, alert delay: {}s",
                 config.getNetworkInterface(),
                 config.getThresholdInMbits(),
                 config.getThresholdOutMbits(),
@@ -101,7 +88,7 @@ public class TCPDumper {
 
         try {
             Thread.currentThread().join();
-        } catch (InterruptedException e) {
+        } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }
     }
@@ -128,9 +115,10 @@ public class TCPDumper {
             }
 
             if (config.isVerbose()) {
-                log.debug("IN: {} Mbit/s | OUT: {} Mbit/s | capturing: {}",
+                log.debug("IN: {} | OUT: {} Mbit/s | alert: {} | capturing: {}",
                         String.format("%.2f", incomingMbits),
                         String.format("%.2f", outgoingMbits),
+                        activeAlertSession != null,
                         isCapturing.get());
             }
 
@@ -139,66 +127,61 @@ public class TCPDumper {
         }
     }
 
-    /**
-     * Called every poll cycle while the threshold is breached.
-     *
-     * <p>If not yet in alert state, starts the alert-delay timer on first breach.
-     * The alert (and capture start) fires only after the delay window has elapsed.
-     * If already capturing, checks for max-duration rotation.
-     */
     private void handleThresholdBreached(double incomingMbits, double outgoingMbits) {
-        if (!isCapturing.get()) {
-            long nowMs = System.currentTimeMillis();
+        // If already in alert state, just update peaks and check rotation
+        if (activeAlertSession != null) {
+            activeAlertSession.updatePeaks(incomingMbits, outgoingMbits);
 
-            if (thresholdFirstBreachedAtMs == 0) {
-                // First poll in this breach window — start the delay timer
-                thresholdFirstBreachedAtMs = nowMs;
-                int delaySeconds = config.getAlertDelaySeconds();
-                if (delaySeconds > 0) {
-                    log.debug("Threshold breached — waiting {}s before alerting (IN: {} Mbit/s, OUT: {} Mbit/s)",
-                            delaySeconds,
-                            String.format("%.2f", incomingMbits),
-                            String.format("%.2f", outgoingMbits));
-                }
-                return;
-            }
-
-            long millisSinceFirstBreach = nowMs - thresholdFirstBreachedAtMs;
-            long alertDelayMs = config.getAlertDelaySeconds() * 1000L;
-
-            if (millisSinceFirstBreach < alertDelayMs) {
-                // Still within the delay window — wait
-                return;
-            }
-
-            // Delay elapsed — fire the alert
-            log.warn("⚠ Alert triggered after {}s sustained breach — IN: {} Mbit/s, OUT: {} Mbit/s",
-                    config.getAlertDelaySeconds(),
-                    String.format("%.2f", incomingMbits),
-                    String.format("%.2f", outgoingMbits));
-
-            isCapturing.set(true);
-            captureStartedAtMs = System.currentTimeMillis();
-            thresholdFirstBreachedAtMs = 0;
-
-            Path captureFile = tcpdumpCapture.start();
-            Path dumpFile    = tcpdumpCapture.writeDump();
-
-            notificationManager.sendAlert(incomingMbits, outgoingMbits, captureFile, dumpFile,
-                    trafficAnalyzer.getTopTalkers(5));
-
-        } else {
-            // Already in alert/capture state — check for max-duration rotation
-            long elapsedMs = System.currentTimeMillis() - captureStartedAtMs;
-            if (elapsedMs > config.getMaxCaptureDurationSeconds() * 1000L) {
-                log.info("Max capture duration reached ({} s) — rotating capture.",
-                        config.getMaxCaptureDurationSeconds());
+            long captureElapsedMs = System.currentTimeMillis() - captureStartedAtMs;
+            if (captureElapsedMs > config.getMaxCaptureDurationSeconds() * 1_000L) {
+                log.info("[{}] Max capture duration — rotating.",
+                        activeAlertSession.alertId);
                 tcpdumpCapture.stop();
-                Path newCaptureFile = tcpdumpCapture.start();
+                Path newCaptureFile = tcpdumpCapture.start(activeAlertSession.alertId);
                 captureStartedAtMs = System.currentTimeMillis();
                 notificationManager.sendCaptureRotated(newCaptureFile);
             }
+            return;
         }
+
+        // Not yet in alert state — manage delay timer
+        long nowMs = System.currentTimeMillis();
+        if (thresholdFirstBreachedAtMs == 0) {
+            thresholdFirstBreachedAtMs = nowMs;
+            int delaySeconds = config.getAlertDelaySeconds();
+            if (delaySeconds > 0) {
+                log.debug("Threshold breached — waiting {}s before alerting.", delaySeconds);
+            }
+            return;
+        }
+
+        long millisSinceFirstBreach = nowMs - thresholdFirstBreachedAtMs;
+        if (millisSinceFirstBreach < config.getAlertDelaySeconds() * 1_000L) {
+            return; // Still within delay window
+        }
+
+        // Delay elapsed — fire the alert
+        String alertId = generateAlertId();
+        log.warn("[{}] Alert fired after {}s sustained breach — IN: {} Mbit/s, OUT: {} Mbit/s",
+                alertId, config.getAlertDelaySeconds(),
+                String.format("%.2f", incomingMbits),
+                String.format("%.2f", outgoingMbits));
+
+        activeAlertSession      = new AlertSession(alertId, System.currentTimeMillis(),
+                incomingMbits, outgoingMbits);
+        thresholdFirstBreachedAtMs = 0;
+        isCapturing.set(true);
+        captureStartedAtMs = System.currentTimeMillis();
+
+        Path captureFile = tcpdumpCapture.start(alertId);
+
+        notificationManager.sendAlert(
+                alertId,
+                incomingMbits, outgoingMbits,
+                captureFile,
+                trafficAnalyzer.getTopTalkers(5));
+
+        trafficAnalyzer.incrementAlerts();
     }
 
     /**
@@ -208,21 +191,40 @@ public class TCPDumper {
      * Stops the capture once the cooldown window has elapsed.
      */
     private void handleTrafficNormal(double incomingMbits, double outgoingMbits) {
-        // Reset breach timer — traffic recovered before the delay elapsed
         if (thresholdFirstBreachedAtMs != 0) {
-            log.debug("Traffic dropped below threshold before alert delay elapsed — resetting timer.");
+            log.debug("Traffic recovered before alert delay elapsed — resetting timer.");
             thresholdFirstBreachedAtMs = 0;
         }
 
-        if (isCapturing.get()) {
-            long elapsedMs = System.currentTimeMillis() - captureStartedAtMs;
-            if (elapsedMs > config.getCooldownSeconds() * 1000L) {
-                log.info("Traffic back to normal — stopping capture.");
-                Path stoppedFile = tcpdumpCapture.stop();
-                isCapturing.set(false);
-                notificationManager.sendResolved(incomingMbits, outgoingMbits, stoppedFile);
-            }
+        if (activeAlertSession == null || !isCapturing.get()) return;
+
+        long captureElapsedMs = System.currentTimeMillis() - captureStartedAtMs;
+        if (captureElapsedMs <= config.getCooldownSeconds() * 1_000L) {
+            return; // Still within cooldown
         }
+
+        // Cooldown elapsed — resolve the alert
+        AlertSession resolvedSession = activeAlertSession;
+        log.info("[{}] Traffic normalised — stopping capture and resolving alert.",
+                resolvedSession.alertId);
+
+        Path completedCapture = tcpdumpCapture.stop();
+        isCapturing.set(false);
+
+        // Copy completed capture → dump directory (after stop, so file is fully flushed)
+        Path dumpFile = tcpdumpCapture.copyToDump(completedCapture, resolvedSession.alertId);
+
+        activeAlertSession = null;
+
+        notificationManager.sendResolved(
+                resolvedSession.alertId,
+                resolvedSession.peakIncomingMbits,
+                resolvedSession.peakOutgoingMbits,
+                incomingMbits,
+                outgoingMbits,
+                resolvedSession.durationSeconds(),
+                completedCapture,
+                dumpFile);
     }
 
     // ── Scheduled tasks ───────────────────────────────────────────────────────
@@ -231,7 +233,7 @@ public class TCPDumper {
         try {
             TrafficAnalyzer.Stats stats = trafficAnalyzer.getStats();
             notificationManager.sendStats(stats);
-            log.info("Stats — Avg IN: {} Mbit/s, Peak IN: {} Mbit/s, Alerts: {}",
+            log.info("Stats — Ø IN: {} Mbit/s | Peak IN: {} Mbit/s | Alerts: {}",
                     String.format("%.2f", stats.avgInMbits()),
                     String.format("%.2f", stats.peakInMbits()),
                     stats.alertCount());
@@ -244,7 +246,7 @@ public class TCPDumper {
         try {
             int deletedCount = tcpdumpCapture.cleanupOld(config.getMaxCaptureAgeDays());
             if (deletedCount > 0) {
-                log.info("Cleaned up {} old capture file(s).", deletedCount);
+                log.info("Deleted {} old capture file(s).", deletedCount);
             }
         } catch (Exception exception) {
             log.error("Error cleaning up captures", exception);
@@ -252,6 +254,12 @@ public class TCPDumper {
     }
 
     // ── CLI ───────────────────────────────────────────────────────────────────
+    private static String generateAlertId() {
+        return UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 8)
+                .toUpperCase();
+    }
 
     private void printBanner() {
         System.out.println("""
